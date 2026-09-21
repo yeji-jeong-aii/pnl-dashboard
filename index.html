@@ -15,6 +15,7 @@ header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-betw
 h1{font-size:22px;margin:0}
 h2{font-size:15px;margin:0 0 10px}
 .muted{color:var(--sub);font-size:12px}
+.sub{font-size:15px;font-weight:600;color:var(--sub);margin:2px 0 4px}
 button,select{font:inherit;padding:7px 12px;border:1px solid var(--line);border-radius:6px;background:#fff}
 button{cursor:pointer;background:var(--main);color:#fff;border-color:var(--main)}
 button:disabled{opacity:.4;cursor:not-allowed}
@@ -66,6 +67,7 @@ svg{width:100%;height:auto;display:block}
   <header>
     <div>
       <h1>엑셀 손익 대시보드</h1>
+      <div class="sub">2026년 상반기 기준</div>
       <div class="muted">금액 단위: 백만원 · 파일은 이 브라우저 안에서만 읽으며 어디에도 전송·저장되지 않습니다.</div>
     </div>
     <button id="printBtn" class="noprint" disabled>보고서 인쇄</button>
