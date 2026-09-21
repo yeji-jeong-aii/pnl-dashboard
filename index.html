@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<!-- 외부로 나가는 통신 전면 차단: connect-src 'none'. file:// 더블클릭 실행과 GitHub Pages 모두 동작하도록 script-src 에 'self' 와 file: 허용 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'none'; object-src 'none'; media-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>엑셀 손익 대시보드</title>
+<style>
+:root{--bg:#f4f6f9;--card:#fff;--ink:#1f2933;--sub:#697586;--line:#e3e8ef;--main:#2563eb;--neg:#dc2626;--pos:#0f9d58}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;font-size:14px}
+.wrap{max-width:1200px;margin:0 auto;padding:16px}
+header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+h1{font-size:22px;margin:0}
+h2{font-size:15px;margin:0 0 10px}
+.muted{color:var(--sub);font-size:12px}
+button,select{font:inherit;padding:7px 12px;border:1px solid var(--line);border-radius:6px;background:#fff}
+button{cursor:pointer;background:var(--main);color:#fff;border-color:var(--main)}
+button:disabled{opacity:.4;cursor:not-allowed}
+#drop{border:2px dashed #9aa8bd;border-radius:10px;background:#fff;padding:28px;text-align:center;color:var(--sub);margin-bottom:12px;cursor:pointer}
+#drop.over{border-color:var(--main);background:#eef4ff}
+#msg{margin:0 0 12px;font-size:13px}
+#msg.err{color:var(--neg)}
+.filters{display:flex;flex-wrap:wrap;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:12px}
+.filters label{display:flex;gap:6px;align-items:center}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px}
+.card,.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;break-inside:avoid}
+.card .k{color:var(--sub);font-size:12px}
+.card .v{font-size:24px;font-weight:700;margin-top:4px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.panel{margin-bottom:12px}
+.grid2 .panel{margin-bottom:0}
+table{width:100%;border-collapse:collapse}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+td.name{white-space:normal;word-break:break-all}
+th{color:var(--sub);font-weight:600;font-size:12px}
+.neg{color:var(--neg)}
+.bar-row{display:grid;grid-template-columns:110px 1fr 120px;gap:8px;align-items:center;margin:6px 0}
+.bar-row .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-bg{background:#eef1f6;border-radius:4px;height:16px;overflow:hidden}
+.bar-fg{background:var(--main);height:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.bar-row .val{text-align:right;font-size:12px;color:var(--sub)}
+.empty{color:var(--sub);padding:8px 0}
+svg{width:100%;height:auto;display:block}
+.chartbox{overflow-x:auto}
+#printInfo{display:none}
+@media (max-width:800px){.cards{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+@media print{
+  body{background:#fff;font-size:11px}
+  .noprint{display:none!important}
+  #printInfo{display:block;margin-bottom:8px}
+  .wrap{max-width:none;padding:0}
+  .card,.panel{border:1px solid #bbb}
+  .grid2{grid-template-columns:1fr 1fr}
+  .cards{grid-template-columns:repeat(4,1fr)}
+  .chartbox{overflow:visible}
+  svg rect,.bar-fg{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @page{size:A4;margin:12mm}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>엑셀 손익 대시보드</h1>
+      <div class="muted">금액 단위: 백만원 · 파일은 이 브라우저 안에서만 읽으며 어디에도 전송·저장되지 않습니다.</div>
+    </div>
+    <button id="printBtn" class="noprint" disabled>보고서 인쇄</button>
+  </header>
+
+  <div id="drop" class="noprint">
+    엑셀 파일(.xlsx)을 여기로 끌어다 놓거나 클릭해서 선택하세요.<br>
+    <span class="muted">시트 이름 "품목손익" · 3행이 머리글</span>
+    <input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
+  </div>
+  <p id="msg" class="noprint"></p>
+
+  <div id="app" hidden>
+    <div class="filters noprint">
+      <label>연도 <select id="fYear"></select></label>
+      <label>채널 <select id="fChannel"></select></label>
+      <label>대분류 <select id="fCat"></select></label>
+    </div>
+    <div id="printInfo" class="muted"></div>
+
+    <div class="cards">
+      <div class="card"><div class="k">총 NNR (백만원)</div><div class="v" id="cNNR"></div></div>
+      <div class="card"><div class="k">총 MC (백만원)</div><div class="v" id="cMC"></div></div>
+      <div class="card"><div class="k">MC%</div><div class="v" id="cMCp"></div></div>
+      <div class="card"><div class="k">거래처 수</div><div class="v" id="cCust"></div></div>
+    </div>
+
+    <div class="panel"><h2>월별 NNR 추이 (백만원)</h2><div class="chartbox" id="monthly"></div></div>
+
+    <div class="grid2">
+      <div class="panel"><h2>채널별 구성 (NNR 기준)</h2><div id="channel"></div></div>
+      <div class="panel"><h2>MC%가 마이너스인 품목</h2><div id="negItems"></div></div>
+    </div>
+
+    <div class="panel"><h2>품목 TOP 10 (NNR 기준)</h2><div id="topItems"></div></div>
+    <div class="panel"><h2>거래처 TOP 10</h2><div id="topCust"></div></div>
+  </div>
+</div>
+
+<script src="vendor/xlsx.full.min.js"></script>
+<script>
+(function(){
+"use strict";
+var SHEET = "품목손익";
+var ALL = "전체";
+var rows = [], fileName = "";
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function hkey(h){ return String(h == null ? "" : h).replace(/[\s 　\/._\-()]+/g, "").toLowerCase(); }
+var ALIAS = { "연월":"연도월", "년월":"연도월", "기준월":"연도월", "월":"연도월", "거래처":"고객명", "거래처명":"고객명", "품목":"품목명", "제품명":"품목명", "netnetrev":"netnetrevenue", "nnr":"netnetrevenue", "mc":"marginalcontribution", "variablecog":"variablecogs" };
+function norm(h){ return hkey(h); }
+function clean(s){ return String(s == null ? "" : s).replace(/[ 　]/g, " ").trim(); }
+function num(v){
+  if (v == null || v === "") return null;
+  if (typeof v === "number") return isFinite(v) ? v : null;
+  var t = String(v).replace(/[,\s원]/g, "");
+  if (t === "" || t === "-") return null;
+  var n = Number(t);
+  return isFinite(n) ? n : null;
+}
+function fmtM(v){ return (Math.round(v / 1e6)).toLocaleString("ko-KR"); }
+function fmtPct(v){ return isFinite(v) ? (v * 100).toFixed(1) + "%" : "-"; }
+
+/* 연도월 → "YYYY-MM" (숫자 202501, 문자열 "2025-01"/"2025.1", 날짜 모두 처리) */
+function parseYM(v){
+  if (v == null || v === "") return null;
+  if (v instanceof Date){
+    var d = new Date(v.getTime() + 12 * 3600 * 1000);
+    return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2);
+  }
+  if (typeof v === "number"){
+    if (v >= 190001 && v <= 209912){ var y = Math.floor(v / 100), m = v % 100; if (m >= 1 && m <= 12) return y + "-" + ("0" + m).slice(-2); }
+    if (v > 20000 && v < 80000){ return parseYM(new Date(Math.round((v - 25569) * 86400 * 1000))); }
+    return null;
+  }
+  var s = String(v).trim();
+  var mt = s.match(/(\d{4})\D*(\d{1,2})/);
+  if (mt){ var mm = +mt[2]; if (mm >= 1 && mm <= 12) return mt[1] + "-" + ("0" + mm).slice(-2); }
+  mt = s.match(/^(\d{4})(\d{2})$/);
+  if (mt) return mt[1] + "-" + mt[2];
+  return null;
+}
+
+function setMsg(t, err){ var m = $("msg"); m.textContent = t; m.className = "noprint" + (err ? " err" : ""); }
+
+function loadFile(file){
+  if (!file) return;
+  setMsg("읽는 중…");
+  var fr = new FileReader();
+  fr.onerror = function(){ setMsg("파일을 읽지 못했습니다.", true); };
+  fr.onload = function(e){
+    try { parseBook(e.target.result, file.name); }
+    catch(err){ setMsg("엑셀을 해석하지 못했습니다: " + err.message, true); }
+  };
+  fr.readAsArrayBuffer(file);
+}
+
+function parseBook(buf, name){
+  if (typeof XLSX === "undefined") throw new Error("vendor/xlsx.full.min.js 를 불러오지 못했습니다. index.html 이 vendor 폴더와 같은 위치에 있는지 확인하고, 탐색기에서 index.html 을 더블클릭해 크롬/엣지로 여세요. (Claude 앱 미리보기 창에서는 vendor 파일을 읽을 수 없습니다.)");
+  var wb = XLSX.read(buf, { type: "array", cellDates: true });
+  var sn = wb.SheetNames.filter(function(n){ return n.trim() === SHEET; })[0];
+  if (!sn){ setMsg('"' + SHEET + '" 시트를 찾을 수 없습니다. (시트: ' + wb.SheetNames.join(", ") + ")", true); return; }
+  var ws = wb.Sheets[sn];
+  var all = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  // 머리글 행 찾기: 처음 15행 중 알려진 열 이름이 가장 많은 행 (동률이면 3행 우선)
+  var known = ["연도월","채널","고객명","품목명","대분류","gr","tta","netnetrevenue","marginalcontribution","variablecogs"];
+  var hdr = -1, best = 0;
+  for (var hi = 0; hi < Math.min(15, all.length); hi++){
+    var hits = 0;
+    (all[hi] || []).forEach(function(h){ var k = hkey(h); if (known.indexOf(k) >= 0 || (k in ALIAS)) hits++; });
+    if (hits > best || (hits === best && hits > 0 && hi === 2)) { best = hits; hdr = hi; }
+  }
+  if (hdr < 0 || best < 2){
+    var first = (all[2] || all[0] || []).map(function(h){ return clean(h); }).filter(Boolean).slice(0, 12).join(" | ");
+    setMsg("머리글 행을 찾지 못했습니다. 3행에서 읽은 값: " + (first || "(비어 있음)"), true); return;
+  }
+  var raw = all.slice(hdr);
+  var idx = {};
+  raw[0].forEach(function(h, i){ var k = hkey(h); k = ALIAS[k] || k; if (k && !(k in idx)) idx[k] = i; });
+  var need = ["연도월", "채널", "고객명", "품목명", "대분류"];
+  var miss = need.filter(function(k){ return !(norm(k) in idx); });
+  if (miss.length){
+    var found = raw[0].map(function(h){ return clean(h); }).filter(Boolean).join(" | ");
+    setMsg("머리글(" + (hdr + 1) + "행)에서 다음 열을 찾지 못했습니다: " + miss.join(", ") + " — 읽은 머리글: " + found, true); return;
+  }
+  if (!("netnetrevenue" in idx) && !("gr" in idx)){ setMsg("Net Net Revenue 또는 GR 열이 필요합니다.", true); return; }
+
+  function cell(r, key){ var i = idx[norm(key)]; return i == null ? null : r[i]; }
+  var out = [];
+  for (var i = 1; i < raw.length; i++){
+    var r = raw[i];
+    var ym = parseYM(cell(r, "연도월"));
+    var cust = clean(cell(r, "고객명"));
+    var item = clean(cell(r, "품목명"));
+    if (!ym && !cust && !item) continue;           // 빈 줄·합계 줄 제외
+    var gr = num(cell(r, "GR")), tta = num(cell(r, "TTA"));
+    var nnr = num(cell(r, "Net Net Revenue"));
+    if (nnr == null) nnr = (gr || 0) - (tta || 0);
+    var cogs = num(cell(r, "Variable COGS")), dc = num(cell(r, "Variable DC"));
+    var mc = num(cell(r, "Marginal Contribution"));
+    if (mc == null) mc = nnr - (cogs || 0) - (dc || 0);
+    out.push({
+      ym: ym, year: ym ? ym.slice(0, 4) : "미상",
+      channel: clean(cell(r, "채널")) || "미분류",
+      cat: clean(cell(r, "대분류")) || "미분류",
+      cust: cust || "(거래처 없음)", item: item || "(품목 없음)",
+      hasCust: !!cust, nnr: nnr, mc: mc
+    });
+  }
+  if (!out.length){ setMsg("읽을 수 있는 데이터 행이 없습니다.", true); return; }
+  rows = out; fileName = name;
+  setMsg(name + " — " + out.length.toLocaleString("ko-KR") + "행을 읽었습니다.");
+  buildFilters();
+  $("app").hidden = false;
+  $("printBtn").disabled = false;
+  render();
+}
+
+function uniq(key){
+  var s = {}; rows.forEach(function(r){ s[r[key]] = 1; });
+  return Object.keys(s).sort();
+}
+function fillSel(id, vals){
+  var el = $(id);
+  el.innerHTML = "";
+  [ALL].concat(vals).forEach(function(v){ var o = document.createElement("option"); o.value = v; o.textContent = v; el.appendChild(o); });
+}
+function buildFilters(){
+  fillSel("fYear", uniq("year"));
+  fillSel("fChannel", uniq("channel"));
+  fillSel("fCat", uniq("cat"));
+}
+
+function groupSum(list, key){
+  var m = {};
+  list.forEach(function(r){
+    var g = m[r[key]] || (m[r[key]] = { name: r[key], nnr: 0, mc: 0 });
+    g.nnr += r.nnr; g.mc += r.mc;
+  });
+  return Object.keys(m).map(function(k){ return m[k]; });
+}
+
+function tableHTML(cols, data, mcpCol){
+  if (!data.length) return '<div class="empty">없음</div>';
+  var h = "<table><thead><tr>" + cols.map(function(c){ return "<th>" + c + "</th>"; }).join("") + "</tr></thead><tbody>";
+  data.forEach(function(r){
+    h += "<tr>" + r.map(function(c, i){
+      var neg = c.neg ? ' class="neg"' : "";
+      var cls = i === 1 && cols[0] !== "#" ? "" : "";
+      return "<td" + (i === 1 && cols[0] === "#" ? ' class="name"' : (i === 0 ? ' class="name"' : "")) + (c.neg ? ' style="color:var(--neg)"' : "") + ">" + c.t + "</td>";
+    }).join("") + "</tr>";
+  });
+  return h + "</tbody></table>";
+}
+
+function render(){
+  var y = $("fYear").value, ch = $("fChannel").value, ct = $("fCat").value;
+  var list = rows.filter(function(r){
+    return (y === ALL || r.year === y) && (ch === ALL || r.channel === ch) && (ct === ALL || r.cat === ct);
+  });
+
+  $("printInfo").textContent = "파일: " + fileName + " · 연도: " + y + " · 채널: " + ch + " · 대분류: " + ct + " · 금액 단위: 백만원";
+
+  var nnr = 0, mc = 0, custs = {};
+  list.forEach(function(r){ nnr += r.nnr; mc += r.mc; if (r.hasCust) custs[r.cust] = 1; });
+  $("cNNR").textContent = fmtM(nnr);
+  $("cMC").textContent = fmtM(mc);
+  $("cMCp").textContent = nnr ? fmtPct(mc / nnr) : "-";
+  $("cCust").textContent = Object.keys(custs).length.toLocaleString("ko-KR");
+
+  renderMonthly(list);
+  renderChannel(list, nnr);
+
+  var items = groupSum(list, "item");
+  var top = items.slice().sort(function(a, b){ return b.nnr - a.nnr; }).slice(0, 10);
+  $("topItems").innerHTML = tableHTML(["#", "품목명", "NNR", "MC", "MC%"], top.map(function(g, i){
+    var p = g.nnr ? g.mc / g.nnr : NaN;
+    return [{t: i + 1}, {t: esc(g.name)}, {t: fmtM(g.nnr)}, {t: fmtM(g.mc)}, {t: fmtPct(p), neg: p < 0}];
+  }));
+
+  var neg = items.filter(function(g){ return g.nnr ? g.mc / g.nnr < 0 : g.mc < 0; }).sort(function(a, b){ return a.mc - b.mc; });
+  $("negItems").innerHTML = tableHTML(["품목명", "NNR", "MC", "MC%"], neg.map(function(g){
+    var p = g.nnr ? g.mc / g.nnr : NaN;
+    return [{t: esc(g.name)}, {t: fmtM(g.nnr)}, {t: fmtM(g.mc), neg: true}, {t: fmtPct(p), neg: true}];
+  }));
+
+  var custs2 = groupSum(list.filter(function(r){ return r.hasCust; }), "cust").sort(function(a, b){ return b.nnr - a.nnr; });
+  var topC = custs2.slice(0, 10);
+  var share = (custs2.length && nnr) ? custs2[0].nnr / nnr : NaN;
+  var html = tableHTML(["#", "거래처", "NNR", "MC", "MC%", "NNR 비중"], topC.map(function(g, i){
+    var p = g.nnr ? g.mc / g.nnr : NaN;
+    return [{t: i + 1}, {t: esc(g.name)}, {t: fmtM(g.nnr)}, {t: fmtM(g.mc)}, {t: fmtPct(p), neg: p < 0}, {t: nnr ? fmtPct(g.nnr / nnr) : "-"}];
+  }));
+  if (custs2.length) html = '<p style="margin:0 0 8px">1위 거래처 <b>' + esc(custs2[0].name) + "</b>의 비중: <b>" + fmtPct(share) + "</b> (전체 NNR 대비)</p>" + html;
+  $("topCust").innerHTML = html;
+}
+
+function renderMonthly(list){
+  var m = {};
+  list.forEach(function(r){ if (r.ym) m[r.ym] = (m[r.ym] || 0) + r.nnr; });
+  var keys = Object.keys(m).sort();
+  var box = $("monthly");
+  if (!keys.length){ box.innerHTML = '<div class="empty">없음</div>'; return; }
+  var vals = keys.map(function(k){ return m[k]; });
+  var max = Math.max.apply(null, vals.concat([0])), min = Math.min.apply(null, vals.concat([0]));
+  var span = (max - min) || 1;
+  var slot = 56, W = Math.max(640, keys.length * slot + 40), H = 260, top = 24, bot = 34, left = 20;
+  var plotH = H - top - bot;
+  var zeroY = top + plotH * (max / span);
+  var svg = '<svg viewBox="0 0 ' + W + " " + H + '" style="min-width:' + Math.min(W, 640) + 'px" role="img" aria-label="월별 NNR 추이">';
+  svg += '<line x1="' + left + '" x2="' + (W - 10) + '" y1="' + zeroY + '" y2="' + zeroY + '" stroke="#9aa8bd"/>';
+  keys.forEach(function(k, i){
+    var v = m[k], h = Math.abs(v) / span * plotH;
+    var x = left + i * slot + 10, w = slot - 20;
+    var yy = v >= 0 ? zeroY - h : zeroY;
+    svg += '<rect x="' + x + '" y="' + yy + '" width="' + w + '" height="' + Math.max(h, 1) + '" rx="3" fill="' + (v >= 0 ? "#2563eb" : "#dc2626") + '"/>';
+    svg += '<text x="' + (x + w / 2) + '" y="' + (v >= 0 ? yy - 5 : yy + h + 12) + '" text-anchor="middle" font-size="11" fill="#1f2933">' + fmtM(v) + "</text>";
+    svg += '<text x="' + (x + w / 2) + '" y="' + (H - 12) + '" text-anchor="middle" font-size="11" fill="#697586">' + k.slice(2) + "</text>";
+  });
+  box.innerHTML = svg + "</svg>";
+}
+
+function renderChannel(list, total){
+  var g = groupSum(list, "channel").sort(function(a, b){ return b.nnr - a.nnr; });
+  if (!g.length){ $("channel").innerHTML = '<div class="empty">없음</div>'; return; }
+  var maxAbs = Math.max.apply(null, g.map(function(x){ return Math.abs(x.nnr); })) || 1;
+  $("channel").innerHTML = g.map(function(x){
+    return '<div class="bar-row"><div class="lbl" title="' + esc(x.name) + '">' + esc(x.name) + '</div>' +
+      '<div class="bar-bg"><div class="bar-fg" style="width:' + (Math.abs(x.nnr) / maxAbs * 100).toFixed(1) + '%"></div></div>' +
+      '<div class="val">' + fmtM(x.nnr) + " · " + (total ? fmtPct(x.nnr / total) : "-") + "</div></div>";
+  }).join("");
+}
+
+/* 이벤트 */
+var drop = $("drop"), fileInput = $("file");
+drop.addEventListener("click", function(){ fileInput.click(); });
+fileInput.addEventListener("change", function(){ loadFile(fileInput.files[0]); fileInput.value = ""; });
+["dragenter", "dragover"].forEach(function(t){ drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.add("over"); }); });
+["dragleave", "drop"].forEach(function(t){ drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.remove("over"); }); });
+drop.addEventListener("drop", function(e){ loadFile(e.dataTransfer.files[0]); });
+// 화면 아무 곳에나 놓아도 브라우저가 파일을 열어버리지 않도록 막기
+window.addEventListener("dragover", function(e){ e.preventDefault(); });
+window.addEventListener("drop", function(e){ e.preventDefault(); if (e.target !== drop && !drop.contains(e.target)) loadFile(e.dataTransfer.files[0]); });
+["fYear", "fChannel", "fCat"].forEach(function(id){ $(id).addEventListener("change", render); });
+$("printBtn").addEventListener("click", function(){ window.print(); });
+})();
+</script>
+</body>
+</html>
